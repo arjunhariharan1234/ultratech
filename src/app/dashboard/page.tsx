@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState, useCallback, useMemo, memo } from "react";
-import { RefreshCw, AlertCircle, Clock, Truck, Radio } from "lucide-react";
+import { RefreshCw, AlertCircle, Clock, Truck } from "lucide-react";
 import type { DiversionRow } from "@/lib/schema";
 import {
   buildDashboardModel,
@@ -44,16 +44,9 @@ const Header = memo(function Header({ lastUpdated, isRefreshing, onRefresh }: He
             <div className="w-9 h-9 bg-ft-yellow rounded-lg flex items-center justify-center">
               <Truck className="w-5 h-5 text-ft-black" aria-hidden="true" />
             </div>
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight">
-                Ultratech Diversion Dashboard
-              </h1>
-              {/* Live indicator */}
-              <div className="flex items-center gap-1.5 text-xs text-ft-gray-400">
-                <Radio className="w-3 h-3 text-green-400 animate-pulse" aria-hidden="true" />
-                <span>Live from Google Sheet</span>
-              </div>
-            </div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              Ultratech Diversion Dashboard
+            </h1>
           </div>
 
           {/* Last Updated + Refresh */}
@@ -361,15 +354,9 @@ function StaticHeader() {
             <div className="w-9 h-9 bg-ft-yellow rounded-lg flex items-center justify-center">
               <Truck className="w-5 h-5 text-ft-black" aria-hidden="true" />
             </div>
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight">
-                Ultratech Diversion Dashboard
-              </h1>
-              <div className="flex items-center gap-1.5 text-xs text-ft-gray-400">
-                <Radio className="w-3 h-3 text-green-400 animate-pulse" aria-hidden="true" />
-                <span>Live from Google Sheet</span>
-              </div>
-            </div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              Ultratech Diversion Dashboard
+            </h1>
           </div>
         </div>
       </div>
