@@ -1,26 +1,94 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Freight Tiger Design System */
+  --ft-yellow: #ffbe07;
+  --ft-yellow-light: #ffd54f;
+  --ft-yellow-dark: #c99200;
+  --ft-black: #0a0a0a;
+  --ft-white: #ffffff;
+
+  /* Neutral Greys */
+  --ft-gray-50: #fafafa;
+  --ft-gray-100: #f5f5f5;
+  --ft-gray-200: #e5e5e5;
+  --ft-gray-300: #d4d4d4;
+  --ft-gray-400: #a3a3a3;
+  --ft-gray-500: #737373;
+  --ft-gray-600: #525252;
+  --ft-gray-700: #404040;
+  --ft-gray-800: #262626;
+  --ft-gray-900: #171717;
+
+  /* Semantic Colors */
+  --ft-success: #22c55e;
+  --ft-warning: #f59e0b;
+  --ft-error: #ef4444;
+  --ft-info: #3b82f6;
+
+  /* App Colors */
+  --background: var(--ft-gray-50);
+  --foreground: var(--ft-gray-900);
+  --card-bg: var(--ft-white);
+  --border: var(--ft-gray-200);
+  --muted: var(--ft-gray-500);
+  --accent: var(--ft-yellow);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card-bg);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+
+  /* Freight Tiger Palette */
+  --color-ft-yellow: var(--ft-yellow);
+  --color-ft-yellow-light: var(--ft-yellow-light);
+  --color-ft-yellow-dark: var(--ft-yellow-dark);
+  --color-ft-black: var(--ft-black);
+  --color-ft-white: var(--ft-white);
+  --color-ft-gray-50: var(--ft-gray-50);
+  --color-ft-gray-100: var(--ft-gray-100);
+  --color-ft-gray-200: var(--ft-gray-200);
+  --color-ft-gray-300: var(--ft-gray-300);
+  --color-ft-gray-400: var(--ft-gray-400);
+  --color-ft-gray-500: var(--ft-gray-500);
+  --color-ft-gray-600: var(--ft-gray-600);
+  --color-ft-gray-700: var(--ft-gray-700);
+  --color-ft-gray-800: var(--ft-gray-800);
+  --color-ft-gray-900: var(--ft-gray-900);
+  --color-ft-success: var(--ft-success);
+  --color-ft-warning: var(--ft-warning);
+  --color-ft-error: var(--ft-error);
+  --color-ft-info: var(--ft-info);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ft-gray-100);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ft-gray-300);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ft-gray-400);
 }
