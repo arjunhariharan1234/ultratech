@@ -1,21 +1,21 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
-import type { ShipmentRecord } from "@/lib/schema";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download, AlertTriangle } from "lucide-react";
+import type { DiversionRow } from "@/lib/schema";
 import { formatDate, formatNumber, formatCurrency } from "@/lib/transform";
 
 interface DataTableProps {
-  data: ShipmentRecord[];
+  data: DiversionRow[];
 }
 
 type SortDirection = "asc" | "desc" | null;
 
 interface Column {
-  key: keyof ShipmentRecord;
+  key: keyof DiversionRow;
   label: string;
   sortable?: boolean;
-  render?: (value: unknown, row: ShipmentRecord) => React.ReactNode;
+  render?: (value: unknown, row: DiversionRow) => React.ReactNode;
   className?: string;
 }
 
@@ -26,21 +26,24 @@ const columns: Column[] = [
   { key: "originLocation", label: "Origin", sortable: true },
   { key: "stopLocation", label: "Destination", sortable: true },
   {
-    key: "totalDistanceTravelledKm",
-    label: "Distance (km)",
+    key: "diffInLead",
+    label: "Diff in Lead",
     sortable: true,
-    render: (v) => formatNumber(v as number | null, 1),
+    render: (v, row) => {
+      const value = v as number | null;
+      if (value === null) return "—";
+      const isDiversion = row.isPotentialDiversion;
+      return (
+        <span className={`flex items-center gap-1 ${isDiversion ? "text-ft-error font-medium" : ""}`}>
+          {isDiversion && <AlertTriangle className="w-3 h-3" />}
+          {formatNumber(value, 1)} km
+        </span>
+      );
+    },
     className: "text-right",
   },
   {
-    key: "actualTransitTimeDays",
-    label: "Transit (days)",
-    sortable: true,
-    render: (v) => formatNumber(v as number | null, 2),
-    className: "text-right",
-  },
-  {
-    key: "freight",
+    key: "totalFreight",
     label: "Freight",
     sortable: true,
     render: (v) => formatCurrency(v as number | null),
@@ -59,10 +62,16 @@ const columns: Column[] = [
     className: "text-right",
   },
   {
+    key: "nearestConsignee",
+    label: "Nearest Consignee",
+    sortable: true,
+    className: "max-w-[150px] truncate",
+  },
+  {
     key: "freightCalculationRemarks",
     label: "Remarks",
     sortable: true,
-    className: "max-w-[200px] truncate",
+    className: "max-w-[180px] truncate",
   },
   { key: "loadStatus", label: "Status", sortable: true },
 ];
@@ -70,7 +79,7 @@ const columns: Column[] = [
 const PAGE_SIZE = 20;
 
 export function DataTable({ data }: DataTableProps) {
-  const [sortKey, setSortKey] = useState<keyof ShipmentRecord | null>(null);
+  const [sortKey, setSortKey] = useState<keyof DiversionRow | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -87,6 +96,8 @@ export function DataTable({ data }: DataTableProps) {
       let comparison = 0;
       if (typeof aVal === "number" && typeof bVal === "number") {
         comparison = aVal - bVal;
+      } else if (typeof aVal === "boolean" && typeof bVal === "boolean") {
+        comparison = aVal === bVal ? 0 : aVal ? -1 : 1;
       } else {
         comparison = String(aVal).localeCompare(String(bVal));
       }
@@ -102,7 +113,7 @@ export function DataTable({ data }: DataTableProps) {
 
   const totalPages = Math.ceil(sortedData.length / PAGE_SIZE);
 
-  const handleSort = (key: keyof ShipmentRecord) => {
+  const handleSort = (key: keyof DiversionRow) => {
     if (sortKey === key) {
       if (sortDirection === "asc") {
         setSortDirection("desc");
@@ -117,7 +128,7 @@ export function DataTable({ data }: DataTableProps) {
     setCurrentPage(1);
   };
 
-  const getSortIcon = (key: keyof ShipmentRecord) => {
+  const getSortIcon = (key: keyof DiversionRow) => {
     if (sortKey !== key) return <ChevronsUpDown className="w-4 h-4 text-ft-gray-400" />;
     if (sortDirection === "asc") return <ChevronUp className="w-4 h-4 text-ft-yellow" />;
     return <ChevronDown className="w-4 h-4 text-ft-yellow" />;
@@ -145,13 +156,24 @@ export function DataTable({ data }: DataTableProps) {
     URL.revokeObjectURL(url);
   };
 
+  // Count diversions in current data
+  const diversionCount = data.filter((r) => r.isPotentialDiversion).length;
+
   return (
     <div className="bg-white rounded-lg border border-ft-gray-200">
       {/* Header */}
       <div className="px-6 py-4 border-b border-ft-gray-200 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-ft-gray-900">
-          Shipment Details
-        </h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-semibold text-ft-gray-900">
+            Shipment Details
+          </h3>
+          {diversionCount > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-ft-error/10 text-ft-error">
+              <AlertTriangle className="w-3 h-3" />
+              {diversionCount} potential diversion{diversionCount !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
         <button
           onClick={handleExport}
           className="flex items-center gap-2 text-sm text-ft-gray-600 hover:text-ft-gray-900 transition-colors"
@@ -196,7 +218,9 @@ export function DataTable({ data }: DataTableProps) {
               paginatedData.map((row) => (
                 <tr
                   key={row.id}
-                  className="hover:bg-ft-gray-50 transition-colors"
+                  className={`hover:bg-ft-gray-50 transition-colors ${
+                    row.isPotentialDiversion ? "bg-ft-error/5" : ""
+                  }`}
                 >
                   {columns.map((col) => (
                     <td

@@ -1,7 +1,14 @@
 import { format, parse, isValid } from "date-fns";
-import type { ShipmentRecord, FilterState, DashboardMetrics } from "./schema";
+import type { DiversionRow, FilterState, DashboardMetrics } from "./schema";
 
-// Safe number formatting
+// =============================================================================
+// FORMATTING HELPERS
+// =============================================================================
+
+/**
+ * Safe number formatting with locale support.
+ * Returns "—" for null/undefined/NaN values.
+ */
 export function formatNumber(value: number | null | undefined, decimals = 0): string {
   if (value === null || value === undefined || isNaN(value)) return "—";
   return value.toLocaleString("en-IN", {
@@ -10,7 +17,10 @@ export function formatNumber(value: number | null | undefined, decimals = 0): st
   });
 }
 
-// Safe currency formatting (INR)
+/**
+ * Safe currency formatting (INR).
+ * Returns "—" for null/undefined/NaN values.
+ */
 export function formatCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined || isNaN(value)) return "—";
   return `₹${value.toLocaleString("en-IN", {
@@ -19,9 +29,22 @@ export function formatCurrency(value: number | null | undefined): string {
   })}`;
 }
 
-// Parse date from various formats
+// =============================================================================
+// DATE PARSING & FORMATTING
+// =============================================================================
+
+/**
+ * Parse date from various formats.
+ * Handles: DD/MM/YYYY, YYYY-MM-DD HH:mm:ss, ISO strings, and native parsing.
+ */
 export function parseDate(dateStr: string): Date | null {
   if (!dateStr) return null;
+
+  // Try ISO format first (most common after normalization)
+  if (dateStr.includes("T")) {
+    const isoDate = new Date(dateStr);
+    if (isValid(isoDate)) return isoDate;
+  }
 
   // Try DD/MM/YYYY format
   const ddmmyyyy = parse(dateStr, "dd/MM/yyyy", new Date());
@@ -38,22 +61,32 @@ export function parseDate(dateStr: string): Date | null {
   return null;
 }
 
-// Format date for display
+/**
+ * Format date for display (e.g., "23 Jan 2026").
+ */
 export function formatDate(dateStr: string): string {
   const date = parseDate(dateStr);
   if (!date) return "—";
   return format(date, "dd MMM yyyy");
 }
 
-// Format datetime for display
+/**
+ * Format datetime for display (e.g., "23 Jan 2026, 14:30").
+ */
 export function formatDateTime(dateStr: string): string {
   const date = parseDate(dateStr);
   if (!date) return "—";
   return format(date, "dd MMM yyyy, HH:mm");
 }
 
-// Get unique values from records for filter options
-export function getFilterOptions(records: ShipmentRecord[]) {
+// =============================================================================
+// FILTER HELPERS
+// =============================================================================
+
+/**
+ * Extract unique filter options from records.
+ */
+export function getFilterOptions(records: DiversionRow[]) {
   const branches = new Set<string>();
   const loadStatuses = new Set<string>();
   const vehicleTypes = new Set<string>();
@@ -74,11 +107,13 @@ export function getFilterOptions(records: ShipmentRecord[]) {
   };
 }
 
-// Apply filters to records
+/**
+ * Apply filters to records (client-side filtering).
+ */
 export function applyFilters(
-  records: ShipmentRecord[],
+  records: DiversionRow[],
   filters: FilterState
-): ShipmentRecord[] {
+): DiversionRow[] {
   return records.filter((r) => {
     // Branch filter
     if (filters.branch && r.branchName !== filters.branch) return false;
@@ -93,9 +128,10 @@ export function applyFilters(
     if (filters.freightRemarks && r.freightCalculationRemarks !== filters.freightRemarks)
       return false;
 
-    // Date range filter
+    // Date range filter - use dateISO for accurate comparison
     if (filters.dateFrom || filters.dateTo) {
-      const recordDate = parseDate(r.date);
+      // Prefer dateISO if available, fallback to date
+      const recordDate = parseDate(r.dateISO || r.date);
       if (!recordDate) return false;
 
       if (filters.dateFrom) {
@@ -113,13 +149,20 @@ export function applyFilters(
   });
 }
 
-// Calculate dashboard metrics
-export function calculateMetrics(records: ShipmentRecord[]): DashboardMetrics {
+// =============================================================================
+// METRICS CALCULATION
+// =============================================================================
+
+/**
+ * Calculate dashboard metrics from diversion records.
+ * Includes diversion-specific metrics like potentialDiversions and shortLeadDistance.
+ */
+export function calculateMetrics(records: DiversionRow[]): DashboardMetrics {
   const loadsByBranch: Record<string, number> = {};
   const freightImpactByBranch: Record<string, number> = {};
   const loadsByStatus: Record<string, number> = {};
   const freightImpactByRemarks: Record<string, number> = {};
-  const dailyData: Record<string, { loads: number; freightImpact: number }> = {};
+  const dailyData: Record<string, { loads: number; freightImpact: number; diversions: number }> = {};
 
   let totalFreightImpact = 0;
   let totalDistance = 0;
@@ -128,6 +171,8 @@ export function calculateMetrics(records: ShipmentRecord[]): DashboardMetrics {
   let totalLoadingTat = 0;
   let loadingTatCount = 0;
   let trackedLoads = 0;
+  let potentialDiversions = 0;
+  let totalShortLeadDistance = 0;
 
   records.forEach((r) => {
     // Branch aggregations
@@ -150,14 +195,17 @@ export function calculateMetrics(records: ShipmentRecord[]): DashboardMetrics {
         (freightImpactByRemarks[r.freightCalculationRemarks] || 0) + (r.freightImpact || 0);
     }
 
-    // Daily trends
+    // Daily trends - use date field for grouping
     if (r.date) {
       const dateKey = r.date;
       if (!dailyData[dateKey]) {
-        dailyData[dateKey] = { loads: 0, freightImpact: 0 };
+        dailyData[dateKey] = { loads: 0, freightImpact: 0, diversions: 0 };
       }
       dailyData[dateKey].loads += 1;
       dailyData[dateKey].freightImpact += r.freightImpact || 0;
+      if (r.isPotentialDiversion) {
+        dailyData[dateKey].diversions += 1;
+      }
     }
 
     // Totals
@@ -173,6 +221,14 @@ export function calculateMetrics(records: ShipmentRecord[]): DashboardMetrics {
     }
     if (r.statusOfTrackedMode === "TRUE" || r.statusOfTrackedMode === "true") {
       trackedLoads++;
+    }
+
+    // Diversion metrics
+    if (r.isPotentialDiversion) {
+      potentialDiversions++;
+    }
+    if (r.shortLeadDistanceKm !== null) {
+      totalShortLeadDistance += r.shortLeadDistanceKm;
     }
   });
 
@@ -193,6 +249,8 @@ export function calculateMetrics(records: ShipmentRecord[]): DashboardMetrics {
     totalDistance,
     avgLoadingTat: loadingTatCount > 0 ? totalLoadingTat / loadingTatCount : 0,
     trackedLoads,
+    potentialDiversions,
+    totalShortLeadDistance,
     loadsByBranch,
     freightImpactByBranch,
     loadsByStatus,
@@ -201,7 +259,14 @@ export function calculateMetrics(records: ShipmentRecord[]): DashboardMetrics {
   };
 }
 
-// Get top N items from a record by value
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+/**
+ * Get top N items from a record by value.
+ * Useful for bar charts and rankings.
+ */
 export function getTopItems(
   data: Record<string, number>,
   n: number,
@@ -211,4 +276,20 @@ export function getTopItems(
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => (sortDescending ? b.value - a.value : a.value - b.value))
     .slice(0, n);
+}
+
+/**
+ * Calculate diversion rate as a percentage.
+ */
+export function calculateDiversionRate(records: DiversionRow[]): number {
+  if (records.length === 0) return 0;
+  const diversions = records.filter((r) => r.isPotentialDiversion).length;
+  return (diversions / records.length) * 100;
+}
+
+/**
+ * Get records that are potential diversions.
+ */
+export function getPotentialDiversions(records: DiversionRow[]): DiversionRow[] {
+  return records.filter((r) => r.isPotentialDiversion);
 }
