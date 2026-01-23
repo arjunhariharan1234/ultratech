@@ -66,8 +66,8 @@ export interface PenaltyCandidateRow {
   journeyId: string;
   branchName: string;
   consignee: string;
-  diffInLead: number | null;
-  freightImpact: number | null;
+  shortLeadDistance: number | null;  // Always positive (ABS of diff_in_lead)
+  recoveryAmount: number | null;     // Always positive (ABS of freight_impact)
   originLocation: string;
   stopLocation: string;
   dropClosestPingAddress: string;
@@ -462,7 +462,8 @@ export function calculateCorridorTable(rows: DiversionRow[]): CorridorTableRow[]
 }
 
 /**
- * Penalty candidates: sorted by freight_impact desc (top N rows)
+ * Penalty candidates: sorted by recovery amount desc (top N rows)
+ * All values are positive for display purposes
  */
 export function calculatePenaltyCandidates(
   rows: DiversionRow[],
@@ -478,8 +479,8 @@ export function calculatePenaltyCandidates(
       journeyId: r.journeyId,
       branchName: r.branchName,
       consignee: r.nearestConsignee,
-      diffInLead: r.diffInLead,
-      freightImpact: r.freightImpact,
+      shortLeadDistance: r.shortLeadDistanceKm,  // Already positive
+      recoveryAmount: r.freightImpact !== null ? Math.abs(r.freightImpact) : null,
       originLocation: r.originLocation,
       stopLocation: r.stopLocation,
       dropClosestPingAddress: r.dropClosestPingAddress,

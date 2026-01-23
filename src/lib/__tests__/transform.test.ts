@@ -355,12 +355,12 @@ describe("calculateCorridorTable", () => {
 });
 
 describe("calculatePenaltyCandidates", () => {
-  it("returns rows sorted by freight impact (absolute)", () => {
+  it("returns rows sorted by recovery amount (always positive)", () => {
     const candidates = calculatePenaltyCandidates(mockRows, 10);
 
     expect(candidates.length).toBe(4); // Only diverted rows
-    expect(candidates[0].freightImpact).toBe(-2000); // Highest absolute value
-    expect(candidates[1].freightImpact).toBe(-1500);
+    expect(candidates[0].recoveryAmount).toBe(2000); // Highest value (positive)
+    expect(candidates[1].recoveryAmount).toBe(1500);
   });
 
   it("respects limit parameter", () => {
@@ -368,18 +368,21 @@ describe("calculatePenaltyCandidates", () => {
     expect(candidates.length).toBe(2);
   });
 
-  it("includes required fields", () => {
+  it("includes required fields with positive values", () => {
     const candidates = calculatePenaltyCandidates(mockRows, 1);
     const candidate = candidates[0];
 
     expect(candidate).toHaveProperty("journeyId");
     expect(candidate).toHaveProperty("branchName");
     expect(candidate).toHaveProperty("consignee");
-    expect(candidate).toHaveProperty("diffInLead");
-    expect(candidate).toHaveProperty("freightImpact");
+    expect(candidate).toHaveProperty("shortLeadDistance");
+    expect(candidate).toHaveProperty("recoveryAmount");
     expect(candidate).toHaveProperty("originLocation");
     expect(candidate).toHaveProperty("stopLocation");
     expect(candidate).toHaveProperty("dropClosestPingAddress");
+    // Verify values are positive
+    expect(candidate.recoveryAmount).toBeGreaterThan(0);
+    expect(candidate.shortLeadDistance).toBeGreaterThan(0);
   });
 });
 
