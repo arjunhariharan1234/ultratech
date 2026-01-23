@@ -304,38 +304,6 @@ export function normalizeRows(rawRows: Record<string, unknown>[]): DiversionRow[
 // Alias for backward compatibility with existing code
 export type ShipmentRecord = DiversionRow;
 
-// Filter state
-export interface FilterState {
-  branch: string;
-  dateFrom: string;
-  dateTo: string;
-  loadStatus: string;
-  vehicleType: string;
-  freightRemarks: string;
-}
-
-// Dashboard metrics
-export interface DashboardMetrics {
-  totalLoads: number;
-  totalFreightImpact: number;
-  avgTransitTime: number;
-  totalDistance: number;
-  avgLoadingTat: number;
-  trackedLoads: number;
-  potentialDiversions: number;
-  totalShortLeadDistance: number;
-  loadsByBranch: Record<string, number>;
-  freightImpactByBranch: Record<string, number>;
-  loadsByStatus: Record<string, number>;
-  freightImpactByRemarks: Record<string, number>;
-  dailyTrends: Array<{
-    date: string;
-    loads: number;
-    freightImpact: number;
-    diversions: number;
-  }>;
-}
-
 // Data fetch response
 export interface SheetDataResponse {
   data: DiversionRow[];

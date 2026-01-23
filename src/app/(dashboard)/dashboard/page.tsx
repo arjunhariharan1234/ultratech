@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { RefreshCw, Clock, AlertCircle } from "lucide-react";
-import type { ShipmentRecord, FilterState, DashboardMetrics } from "@/lib/schema";
-import { calculateMetrics, applyFilters, getFilterOptions, formatDateTime } from "@/lib/transform";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { RefreshCw, AlertCircle } from "lucide-react";
+import type { DiversionRow } from "@/lib/schema";
+import {
+  buildDashboardModel,
+  DEFAULT_FILTERS,
+  formatDateTime,
+  type FilterState,
+  type DashboardModel,
+} from "@/lib/transform";
 import { Header } from "@/components/dashboard/Header";
 import { Filters } from "@/components/dashboard/Filters";
 import { Scorecards } from "@/components/dashboard/Scorecards";
@@ -13,24 +19,20 @@ import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-const initialFilters: FilterState = {
-  branch: "",
-  dateFrom: "",
-  dateTo: "",
-  loadStatus: "",
-  vehicleType: "",
-  freightRemarks: "",
-};
-
 export default function DashboardPage() {
-  const [allData, setAllData] = useState<ShipmentRecord[]>([]);
-  const [filteredData, setFilteredData] = useState<ShipmentRecord[]>([]);
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [filters, setFilters] = useState<FilterState>(initialFilters);
+  const [allData, setAllData] = useState<DiversionRow[]>([]);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Build dashboard model from data and filters
+  const model: DashboardModel | null = useMemo(() => {
+    if (allData.length === 0 && !isLoading) return null;
+    if (allData.length === 0) return null;
+    return buildDashboardModel(allData, filters);
+  }, [allData, filters, isLoading]);
 
   const fetchData = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setIsRefreshing(true);
@@ -68,21 +70,12 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Apply filters and calculate metrics when data or filters change
-  useEffect(() => {
-    const filtered = applyFilters(allData, filters);
-    setFilteredData(filtered);
-    setMetrics(calculateMetrics(filtered));
-  }, [allData, filters]);
-
-  const filterOptions = getFilterOptions(allData);
-
-  const handleFilterChange = (key: keyof FilterState, value: string) => {
+  const handleFilterChange = (key: keyof FilterState, value: string | boolean | number | null) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleClearFilters = () => {
-    setFilters(initialFilters);
+    setFilters(DEFAULT_FILTERS);
   };
 
   if (isLoading) {
@@ -128,6 +121,23 @@ export default function DashboardPage() {
     );
   }
 
+  if (!model) {
+    return (
+      <div className="min-h-screen bg-ft-gray-50">
+        <Header
+          lastUpdated={lastUpdated}
+          isRefreshing={isRefreshing}
+          onRefresh={() => fetchData(true)}
+        />
+        <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="bg-white rounded-lg border border-ft-gray-200 p-12 text-center">
+            <p className="text-ft-gray-500">No data available</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-ft-gray-50">
       <Header
@@ -140,21 +150,24 @@ export default function DashboardPage() {
         {/* Filters */}
         <Filters
           filters={filters}
-          options={filterOptions}
+          options={model.filterOptions}
           onChange={handleFilterChange}
           onClear={handleClearFilters}
-          totalCount={allData.length}
-          filteredCount={filteredData.length}
+          totalCount={model.totalRows}
+          filteredCount={model.filteredRows.length}
         />
 
         {/* Scorecards */}
-        {metrics && <Scorecards metrics={metrics} />}
+        <Scorecards scorecards={model.scorecards} />
 
         {/* Charts */}
-        {metrics && <Charts metrics={metrics} />}
+        <Charts
+          branchChart={model.branchChart}
+          consigneeChart={model.consigneeChart}
+        />
 
         {/* Data Table */}
-        <DataTable data={filteredData} />
+        <DataTable data={model.filteredRows} />
       </main>
     </div>
   );

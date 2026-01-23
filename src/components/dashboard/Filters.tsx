@@ -1,17 +1,16 @@
-import { X, Filter } from "lucide-react";
-import type { FilterState } from "@/lib/schema";
+import { X, Filter, AlertTriangle } from "lucide-react";
+import type { FilterState } from "@/lib/transform";
 
 interface FilterOptions {
   branches: string[];
-  loadStatuses: string[];
-  vehicleTypes: string[];
-  freightRemarks: string[];
+  consignees: string[];
+  dateRange: { min: string; max: string };
 }
 
 interface FiltersProps {
   filters: FilterState;
   options: FilterOptions;
-  onChange: (key: keyof FilterState, value: string) => void;
+  onChange: (key: keyof FilterState, value: string | boolean | number | null) => void;
   onClear: () => void;
   totalCount: number;
   filteredCount: number;
@@ -25,11 +24,35 @@ export function Filters({
   totalCount,
   filteredCount,
 }: FiltersProps) {
-  const hasActiveFilters = Object.values(filters).some((v) => v !== "");
+  const hasActiveFilters =
+    filters.branch !== "" ||
+    filters.consignee !== "" ||
+    filters.dateFrom !== "" ||
+    filters.dateTo !== "" ||
+    filters.minFreightImpact !== null ||
+    !filters.onlyDiversions;
 
   return (
     <div className="bg-white rounded-lg border border-ft-gray-200 p-4">
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-end gap-4">
+        {/* Only Diversions Toggle */}
+        <div className="flex-shrink-0">
+          <label className="block text-xs font-medium text-ft-gray-500 mb-1">
+            Show
+          </label>
+          <button
+            onClick={() => onChange("onlyDiversions", !filters.onlyDiversions)}
+            className={`h-10 px-4 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              filters.onlyDiversions
+                ? "bg-ft-error/10 text-ft-error border border-ft-error/20"
+                : "bg-ft-gray-100 text-ft-gray-600 border border-ft-gray-200"
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4" />
+            {filters.onlyDiversions ? "Diversions Only" : "All Loads"}
+          </button>
+        </div>
+
         {/* Branch */}
         <div className="flex-1 min-w-[160px] max-w-[200px]">
           <label className="block text-xs font-medium text-ft-gray-500 mb-1">
@@ -49,61 +72,42 @@ export function Filters({
           </select>
         </div>
 
-        {/* Load Status */}
-        <div className="flex-1 min-w-[160px] max-w-[200px]">
+        {/* Consignee */}
+        <div className="flex-1 min-w-[180px] max-w-[240px]">
           <label className="block text-xs font-medium text-ft-gray-500 mb-1">
-            Load Status
+            Nearest Consignee
           </label>
           <select
-            value={filters.loadStatus}
-            onChange={(e) => onChange("loadStatus", e.target.value)}
+            value={filters.consignee}
+            onChange={(e) => onChange("consignee", e.target.value)}
             className="w-full h-10 px-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
           >
-            <option value="">All Statuses</option>
-            {options.loadStatuses.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            <option value="">All Consignees</option>
+            {options.consignees.map((c) => (
+              <option key={c} value={c}>
+                {c}
               </option>
             ))}
           </select>
         </div>
 
-        {/* Vehicle Type */}
-        <div className="flex-1 min-w-[160px] max-w-[200px]">
+        {/* Min Freight Impact */}
+        <div className="flex-1 min-w-[140px] max-w-[160px]">
           <label className="block text-xs font-medium text-ft-gray-500 mb-1">
-            Vehicle Type
+            Min Impact (₹)
           </label>
-          <select
-            value={filters.vehicleType}
-            onChange={(e) => onChange("vehicleType", e.target.value)}
+          <input
+            type="number"
+            value={filters.minFreightImpact ?? ""}
+            onChange={(e) =>
+              onChange(
+                "minFreightImpact",
+                e.target.value ? parseFloat(e.target.value) : null
+              )
+            }
+            placeholder="e.g. 500"
             className="w-full h-10 px-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
-          >
-            <option value="">All Types</option>
-            {options.vehicleTypes.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Freight Remarks */}
-        <div className="flex-1 min-w-[200px] max-w-[280px]">
-          <label className="block text-xs font-medium text-ft-gray-500 mb-1">
-            Freight Remarks
-          </label>
-          <select
-            value={filters.freightRemarks}
-            onChange={(e) => onChange("freightRemarks", e.target.value)}
-            className="w-full h-10 px-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
-          >
-            <option value="">All Remarks</option>
-            {options.freightRemarks.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         {/* Date From */}
@@ -114,6 +118,8 @@ export function Filters({
           <input
             type="date"
             value={filters.dateFrom}
+            min={options.dateRange.min}
+            max={options.dateRange.max}
             onChange={(e) => onChange("dateFrom", e.target.value)}
             className="w-full h-10 px-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
           />
@@ -127,6 +133,8 @@ export function Filters({
           <input
             type="date"
             value={filters.dateTo}
+            min={options.dateRange.min}
+            max={options.dateRange.max}
             onChange={(e) => onChange("dateTo", e.target.value)}
             className="w-full h-10 px-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
           />
@@ -134,10 +142,10 @@ export function Filters({
 
         {/* Clear Filters */}
         {hasActiveFilters && (
-          <div className="flex-shrink-0 pt-5">
+          <div className="flex-shrink-0">
             <button
               onClick={onClear}
-              className="flex items-center gap-1 text-sm text-ft-gray-500 hover:text-ft-gray-700 transition-colors"
+              className="h-10 flex items-center gap-1 text-sm text-ft-gray-500 hover:text-ft-gray-700 transition-colors"
             >
               <X className="w-4 h-4" />
               Clear
@@ -153,7 +161,7 @@ export function Filters({
           Showing <strong className="text-ft-gray-900">{filteredCount.toLocaleString()}</strong>
           {filteredCount !== totalCount && (
             <> of {totalCount.toLocaleString()}</>
-          )} loads
+          )} {filters.onlyDiversions ? "diversions" : "loads"}
         </span>
       </div>
     </div>
