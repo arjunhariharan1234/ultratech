@@ -1,5 +1,9 @@
-import { X, Filter, AlertTriangle } from "lucide-react";
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { X, Filter, AlertTriangle, RotateCcw, Search } from "lucide-react";
 import type { FilterState } from "@/lib/transform";
+import { useDebounce } from "@/hooks/useDebounce";
 
 interface FilterOptions {
   branches: string[];
@@ -11,26 +15,49 @@ interface FiltersProps {
   filters: FilterState;
   options: FilterOptions;
   onChange: (key: keyof FilterState, value: string | boolean | number | null) => void;
-  onClear: () => void;
+  onReset: () => void;
   totalCount: number;
   filteredCount: number;
+  hasActiveFilters: boolean;
 }
+
+const DEBOUNCE_MS = 300;
 
 export function Filters({
   filters,
   options,
   onChange,
-  onClear,
+  onReset,
   totalCount,
   filteredCount,
+  hasActiveFilters,
 }: FiltersProps) {
-  const hasActiveFilters =
-    filters.branch !== "" ||
-    filters.consignee !== "" ||
-    filters.dateFrom !== "" ||
-    filters.dateTo !== "" ||
-    filters.minFreightImpact !== null ||
-    !filters.onlyDiversions;
+  // Local state for consignee search input (for debouncing)
+  const [consigneeSearch, setConsigneeSearch] = useState(filters.consignee);
+  const debouncedConsigneeSearch = useDebounce(consigneeSearch, DEBOUNCE_MS);
+
+  // Sync debounced value to filter state
+  useEffect(() => {
+    if (debouncedConsigneeSearch !== filters.consignee) {
+      onChange("consignee", debouncedConsigneeSearch);
+    }
+  }, [debouncedConsigneeSearch, filters.consignee, onChange]);
+
+  // Keep local state in sync with external filter changes (e.g., reset)
+  useEffect(() => {
+    if (filters.consignee !== consigneeSearch && filters.consignee === "") {
+      setConsigneeSearch("");
+    }
+  }, [filters.consignee, consigneeSearch]);
+
+  // Filter consignees based on search input
+  const filteredConsignees = useMemo(() => {
+    if (!consigneeSearch) return options.consignees;
+    const searchLower = consigneeSearch.toLowerCase();
+    return options.consignees.filter((c) =>
+      c.toLowerCase().includes(searchLower)
+    );
+  }, [options.consignees, consigneeSearch]);
 
   return (
     <div className="bg-white rounded-lg border border-ft-gray-200 p-4">
@@ -72,23 +99,38 @@ export function Filters({
           </select>
         </div>
 
-        {/* Consignee */}
-        <div className="flex-1 min-w-[180px] max-w-[240px]">
+        {/* Consignee Search */}
+        <div className="flex-1 min-w-[180px] max-w-[260px]">
           <label className="block text-xs font-medium text-ft-gray-500 mb-1">
             Nearest Consignee
           </label>
-          <select
-            value={filters.consignee}
-            onChange={(e) => onChange("consignee", e.target.value)}
-            className="w-full h-10 px-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
-          >
-            <option value="">All Consignees</option>
-            {options.consignees.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ft-gray-400" />
+            <input
+              type="text"
+              value={consigneeSearch}
+              onChange={(e) => setConsigneeSearch(e.target.value)}
+              placeholder="Search consignees..."
+              list="consignee-options"
+              className="w-full h-10 pl-9 pr-3 bg-ft-gray-50 border border-ft-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ft-yellow focus:border-transparent"
+            />
+            <datalist id="consignee-options">
+              {filteredConsignees.slice(0, 20).map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+            {consigneeSearch && (
+              <button
+                onClick={() => {
+                  setConsigneeSearch("");
+                  onChange("consignee", "");
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ft-gray-400 hover:text-ft-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Min Freight Impact */}
@@ -140,15 +182,15 @@ export function Filters({
           />
         </div>
 
-        {/* Clear Filters */}
+        {/* Reset Filters Button */}
         {hasActiveFilters && (
           <div className="flex-shrink-0">
             <button
-              onClick={onClear}
-              className="h-10 flex items-center gap-1 text-sm text-ft-gray-500 hover:text-ft-gray-700 transition-colors"
+              onClick={onReset}
+              className="h-10 flex items-center gap-2 px-4 bg-ft-gray-100 hover:bg-ft-gray-200 text-ft-gray-700 rounded-lg text-sm font-medium transition-colors"
             >
-              <X className="w-4 h-4" />
-              Clear
+              <RotateCcw className="w-4 h-4" />
+              Reset
             </button>
           </div>
         )}

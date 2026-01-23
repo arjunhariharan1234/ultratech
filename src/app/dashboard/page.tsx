@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { Suspense, useEffect, useState, useCallback, useMemo } from "react";
 import { RefreshCw, AlertCircle, Clock, Truck } from "lucide-react";
 import type { DiversionRow } from "@/lib/schema";
 import {
   buildDashboardModel,
-  DEFAULT_FILTERS,
+  extractFilterOptions,
   formatDateTime,
-  type FilterState,
   type DashboardModel,
 } from "@/lib/transform";
+import { useFilterParams } from "@/hooks/useFilterParams";
 import { Filters } from "@/components/dashboard/Filters";
 import { Scorecards } from "@/components/dashboard/Scorecards";
 import { Charts } from "@/components/dashboard/Charts";
@@ -22,13 +22,23 @@ import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-export default function DashboardPage() {
+function DashboardContent() {
   const [allData, setAllData] = useState<DiversionRow[]>([]);
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Extract filter options from all data (for date range defaults)
+  const filterOptions = useMemo(() => {
+    if (allData.length === 0) return { branches: [], consignees: [], dateRange: { min: "", max: "" } };
+    return extractFilterOptions(allData);
+  }, [allData]);
+
+  // Use URL-synced filters with date range for defaults
+  const { filters, setFilter, resetFilters, hasActiveFilters } = useFilterParams({
+    dateRange: filterOptions.dateRange,
+  });
 
   // Build dashboard model from data and filters
   const model: DashboardModel | null = useMemo(() => {
@@ -71,14 +81,6 @@ export default function DashboardPage() {
     }, AUTO_REFRESH_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  const handleFilterChange = (key: keyof FilterState, value: string | boolean | number | null) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleClearFilters = () => {
-    setFilters(DEFAULT_FILTERS);
-  };
 
   // Header component
   const Header = () => (
@@ -187,10 +189,11 @@ export default function DashboardPage() {
           <Filters
             filters={filters}
             options={model.filterOptions}
-            onChange={handleFilterChange}
-            onClear={handleClearFilters}
+            onChange={setFilter}
+            onReset={resetFilters}
             totalCount={model.totalRows}
             filteredCount={model.filteredRows.length}
+            hasActiveFilters={hasActiveFilters}
           />
         </div>
       </div>
@@ -207,7 +210,7 @@ export default function DashboardPage() {
               No records match the selected filters. Try adjusting your criteria.
             </p>
             <button
-              onClick={handleClearFilters}
+              onClick={resetFilters}
               className="text-ft-yellow-dark hover:text-ft-yellow font-medium"
             >
               Reset all filters
@@ -252,5 +255,33 @@ export default function DashboardPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-ft-gray-50">
+        <header className="bg-ft-black text-white">
+          <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-ft-yellow rounded-lg flex items-center justify-center">
+                  <Truck className="w-5 h-5 text-ft-black" />
+                </div>
+                <h1 className="text-lg font-semibold tracking-tight">
+                  Ultratech Diversion Dashboard
+                </h1>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <LoadingSkeleton />
+        </main>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }
