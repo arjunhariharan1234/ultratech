@@ -101,28 +101,53 @@ export interface DashboardModel {
 }
 
 // =============================================================================
-// FORMATTING HELPERS
+// FORMATTING HELPERS (null-safe)
 // =============================================================================
 
+/**
+ * Safely format a number with locale-specific formatting.
+ * Handles null, undefined, NaN, Infinity, and non-finite values.
+ */
 export function formatNumber(value: number | null | undefined, decimals = 0): string {
-  if (value === null || value === undefined || isNaN(value)) return "—";
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
 }
 
+/**
+ * Safely format a currency value in INR.
+ * Handles null, undefined, NaN, Infinity, and non-finite values.
+ */
 export function formatCurrency(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return "—";
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return `₹${value.toLocaleString("en-IN", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   })}`;
 }
 
+/**
+ * Safely format a distance value in kilometers.
+ * Handles null, undefined, NaN, Infinity, and non-finite values.
+ */
 export function formatDistance(value: number | null | undefined): string {
-  if (value === null || value === undefined || isNaN(value)) return "—";
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return `${formatNumber(value, 1)} km`;
+}
+
+/**
+ * Safely get a numeric value, returning 0 for invalid inputs.
+ * Useful for aggregation operations.
+ */
+export function safeNumber(value: number | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return value;
 }
 
 // =============================================================================
@@ -259,27 +284,27 @@ export function applyFilters(rows: DiversionRow[], filters: FilterState): Divers
 
 export function calculateScorecards(rows: DiversionRow[]): Scorecards {
   // Filter to only diverted rows for most metrics
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
 
   // 1) Total Potential recovery = SUM(freight_impact)
   // Note: freight_impact is typically negative for diversions (savings opportunity)
   // We take absolute value for "recovery" framing
   const totalPotentialRecovery = divertedRows.reduce((sum, r) => {
-    return sum + Math.abs(r.freightImpact || 0);
+    return sum + Math.abs(safeNumber(r.freightImpact));
   }, 0);
 
   // 2) Average short lead distance = AVG(ABS(diff_in_lead)) over diverted rows
   const shortLeadDistances = divertedRows
     .map((r) => r.shortLeadDistanceKm)
-    .filter((d): d is number => d !== null);
+    .filter((d): d is number => d !== null && Number.isFinite(d));
   const avgShortLeadDistance =
     shortLeadDistances.length > 0
       ? shortLeadDistances.reduce((sum, d) => sum + d, 0) / shortLeadDistances.length
       : 0;
 
   // 3) Maximum diverted distance = MAX(ABS(diff_in_lead)) over diverted rows
-  const maxDivertedDistance =
-    shortLeadDistances.length > 0 ? Math.max(...shortLeadDistances) : 0;
+  // Use reduce instead of spread to avoid stack overflow on large arrays
+  const maxDivertedDistance = shortLeadDistances.reduce((max, d) => Math.max(max, d), 0);
 
   // 4) Total diverted journeys = COUNT(distinct journey_id) over diverted rows
   const uniqueJourneys = new Set(divertedRows.map((r) => r.journeyId).filter(Boolean));
@@ -308,13 +333,13 @@ export function calculateScorecards(rows: DiversionRow[]): Scorecards {
 // =============================================================================
 
 export function calculateBranchChart(rows: DiversionRow[], limit = 10): ChartDataPoint[] {
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
   const branchMap = new Map<string, { recovery: number; count: number }>();
 
   divertedRows.forEach((r) => {
-    if (!r.branchName) return;
+    if (!r?.branchName) return;
     const existing = branchMap.get(r.branchName) || { recovery: 0, count: 0 };
-    existing.recovery += Math.abs(r.freightImpact || 0);
+    existing.recovery += Math.abs(safeNumber(r.freightImpact));
     existing.count += 1;
     branchMap.set(r.branchName, existing);
   });
@@ -326,13 +351,13 @@ export function calculateBranchChart(rows: DiversionRow[], limit = 10): ChartDat
 }
 
 export function calculateConsigneeChart(rows: DiversionRow[], limit = 10): ChartDataPoint[] {
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
   const consigneeMap = new Map<string, { recovery: number; count: number }>();
 
   divertedRows.forEach((r) => {
-    if (!r.nearestConsignee) return;
+    if (!r?.nearestConsignee) return;
     const existing = consigneeMap.get(r.nearestConsignee) || { recovery: 0, count: 0 };
-    existing.recovery += Math.abs(r.freightImpact || 0);
+    existing.recovery += Math.abs(safeNumber(r.freightImpact));
     existing.count += 1;
     consigneeMap.set(r.nearestConsignee, existing);
   });
@@ -351,23 +376,27 @@ export function calculateConsigneeChart(rows: DiversionRow[], limit = 10): Chart
  * Branch-wise table: branch_name, diverted_journeys, total_recovery, avg_short_lead, max_short_lead
  */
 export function calculateBranchTable(rows: DiversionRow[]): BranchTableRow[] {
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
   const branchMap = new Map<
     string,
-    { journeys: Set<string>; recovery: number; shortLeads: number[] }
+    { journeys: Set<string>; recovery: number; shortLeadSum: number; shortLeadMax: number; shortLeadCount: number }
   >();
 
   divertedRows.forEach((r) => {
-    if (!r.branchName) return;
+    if (!r?.branchName) return;
     const existing = branchMap.get(r.branchName) || {
       journeys: new Set<string>(),
       recovery: 0,
-      shortLeads: [],
+      shortLeadSum: 0,
+      shortLeadMax: 0,
+      shortLeadCount: 0,
     };
     if (r.journeyId) existing.journeys.add(r.journeyId);
-    existing.recovery += Math.abs(r.freightImpact || 0);
-    if (r.shortLeadDistanceKm !== null) {
-      existing.shortLeads.push(r.shortLeadDistanceKm);
+    existing.recovery += Math.abs(safeNumber(r.freightImpact));
+    if (r.shortLeadDistanceKm !== null && Number.isFinite(r.shortLeadDistanceKm)) {
+      existing.shortLeadSum += r.shortLeadDistanceKm;
+      existing.shortLeadMax = Math.max(existing.shortLeadMax, r.shortLeadDistanceKm);
+      existing.shortLeadCount += 1;
     }
     branchMap.set(r.branchName, existing);
   });
@@ -377,11 +406,8 @@ export function calculateBranchTable(rows: DiversionRow[]): BranchTableRow[] {
       branchName,
       divertedJourneys: data.journeys.size,
       totalRecovery: data.recovery,
-      avgShortLead:
-        data.shortLeads.length > 0
-          ? data.shortLeads.reduce((a, b) => a + b, 0) / data.shortLeads.length
-          : 0,
-      maxShortLead: data.shortLeads.length > 0 ? Math.max(...data.shortLeads) : 0,
+      avgShortLead: data.shortLeadCount > 0 ? data.shortLeadSum / data.shortLeadCount : 0,
+      maxShortLead: data.shortLeadMax,
     }))
     .sort((a, b) => b.totalRecovery - a.totalRecovery);
 }
@@ -390,19 +416,19 @@ export function calculateBranchTable(rows: DiversionRow[]): BranchTableRow[] {
  * Consignee table: consignee, diverted_journeys, total_recovery, repeat_rate
  */
 export function calculateConsigneeTable(rows: DiversionRow[]): ConsigneeTableRow[] {
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
-  const totalJourneys = new Set(divertedRows.map((r) => r.journeyId).filter(Boolean)).size;
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
+  const totalJourneys = new Set(divertedRows.map((r) => r?.journeyId).filter(Boolean)).size;
 
   const consigneeMap = new Map<string, { journeys: Set<string>; recovery: number }>();
 
   divertedRows.forEach((r) => {
-    if (!r.nearestConsignee) return;
+    if (!r?.nearestConsignee) return;
     const existing = consigneeMap.get(r.nearestConsignee) || {
       journeys: new Set<string>(),
       recovery: 0,
     };
     if (r.journeyId) existing.journeys.add(r.journeyId);
-    existing.recovery += Math.abs(r.freightImpact || 0);
+    existing.recovery += Math.abs(safeNumber(r.freightImpact));
     consigneeMap.set(r.nearestConsignee, existing);
   });
 
@@ -420,15 +446,15 @@ export function calculateConsigneeTable(rows: DiversionRow[]): ConsigneeTableRow
  * Corridor table: origin + stop grouped, count, total_recovery, avg_short_lead
  */
 export function calculateCorridorTable(rows: DiversionRow[]): CorridorTableRow[] {
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
   const corridorMap = new Map<
     string,
-    { origin: string; destination: string; count: number; recovery: number; shortLeads: number[] }
+    { origin: string; destination: string; count: number; recovery: number; shortLeadSum: number; shortLeadCount: number }
   >();
 
   divertedRows.forEach((r) => {
-    const origin = r.originLocation || "Unknown";
-    const destination = r.stopLocation || "Unknown";
+    const origin = r?.originLocation || "Unknown";
+    const destination = r?.stopLocation || "Unknown";
     const key = `${origin}|||${destination}`;
 
     const existing = corridorMap.get(key) || {
@@ -436,12 +462,14 @@ export function calculateCorridorTable(rows: DiversionRow[]): CorridorTableRow[]
       destination,
       count: 0,
       recovery: 0,
-      shortLeads: [],
+      shortLeadSum: 0,
+      shortLeadCount: 0,
     };
     existing.count += 1;
-    existing.recovery += Math.abs(r.freightImpact || 0);
-    if (r.shortLeadDistanceKm !== null) {
-      existing.shortLeads.push(r.shortLeadDistanceKm);
+    existing.recovery += Math.abs(safeNumber(r.freightImpact));
+    if (r.shortLeadDistanceKm !== null && Number.isFinite(r.shortLeadDistanceKm)) {
+      existing.shortLeadSum += r.shortLeadDistanceKm;
+      existing.shortLeadCount += 1;
     }
     corridorMap.set(key, existing);
   });
@@ -453,10 +481,7 @@ export function calculateCorridorTable(rows: DiversionRow[]): CorridorTableRow[]
       corridor: `${data.origin} → ${data.destination}`,
       count: data.count,
       totalRecovery: data.recovery,
-      avgShortLead:
-        data.shortLeads.length > 0
-          ? data.shortLeads.reduce((a, b) => a + b, 0) / data.shortLeads.length
-          : 0,
+      avgShortLead: data.shortLeadCount > 0 ? data.shortLeadSum / data.shortLeadCount : 0,
     }))
     .sort((a, b) => b.count - a.count);
 }
@@ -469,22 +494,22 @@ export function calculatePenaltyCandidates(
   rows: DiversionRow[],
   limit = 20
 ): PenaltyCandidateRow[] {
-  const divertedRows = rows.filter((r) => r.isPotentialDiversion);
+  const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
 
   return divertedRows
-    .filter((r) => r.freightImpact !== null)
-    .sort((a, b) => Math.abs(b.freightImpact || 0) - Math.abs(a.freightImpact || 0))
+    .filter((r) => r?.freightImpact !== null && Number.isFinite(r.freightImpact))
+    .sort((a, b) => Math.abs(safeNumber(b.freightImpact)) - Math.abs(safeNumber(a.freightImpact)))
     .slice(0, limit)
     .map((r) => ({
-      journeyId: r.journeyId,
-      branchName: r.branchName,
-      consignee: r.nearestConsignee,
-      shortLeadDistance: r.shortLeadDistanceKm,  // Already positive
-      recoveryAmount: r.freightImpact !== null ? Math.abs(r.freightImpact) : null,
-      originLocation: r.originLocation,
-      stopLocation: r.stopLocation,
-      dropClosestPingAddress: r.dropClosestPingAddress,
-      date: r.date,
+      journeyId: r?.journeyId ?? "",
+      branchName: r?.branchName ?? "",
+      consignee: r?.nearestConsignee ?? "",
+      shortLeadDistance: r?.shortLeadDistanceKm ?? null,
+      recoveryAmount: r?.freightImpact !== null ? Math.abs(safeNumber(r.freightImpact)) : null,
+      originLocation: r?.originLocation ?? "",
+      stopLocation: r?.stopLocation ?? "",
+      dropClosestPingAddress: r?.dropClosestPingAddress ?? "",
+      date: r?.date ?? "",
     }));
 }
 
