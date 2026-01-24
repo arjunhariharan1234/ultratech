@@ -23,6 +23,8 @@ import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { ToastContainer, useToast } from "@/components/ui/Toast";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { PerformanceWarning, LARGE_DATASET_THRESHOLD } from "@/components/ui/PerformanceWarning";
+import { GeniePanel } from "@/components/genie/GeniePanel";
+import { GenieButton } from "@/components/genie/GenieButton";
 
 // Configurable auto-refresh interval (in milliseconds)
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -32,9 +34,10 @@ interface HeaderProps {
   lastUpdated: string | null;
   isRefreshing: boolean;
   onRefresh: () => void;
+  onOpenGenie: () => void;
 }
 
-const Header = memo(function Header({ lastUpdated, isRefreshing, onRefresh }: HeaderProps) {
+const Header = memo(function Header({ lastUpdated, isRefreshing, onRefresh, onOpenGenie }: HeaderProps) {
   return (
     <header className="bg-ft-black text-white">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
@@ -49,10 +52,11 @@ const Header = memo(function Header({ lastUpdated, isRefreshing, onRefresh }: He
             </h1>
           </div>
 
-          {/* Last Updated + Refresh */}
-          <div className="flex items-center gap-4">
+          {/* Genie + Last Updated + Refresh */}
+          <div className="flex items-center gap-3">
+            <GenieButton onClick={onOpenGenie} />
             {lastUpdated && (
-              <div className="hidden sm:flex items-center gap-2 text-ft-gray-400 text-sm">
+              <div className="hidden md:flex items-center gap-2 text-ft-gray-400 text-sm">
                 <Clock className="w-4 h-4" aria-hidden="true" />
                 <time dateTime={lastUpdated}>Updated {formatDateTime(lastUpdated)}</time>
               </div>
@@ -161,8 +165,13 @@ function DashboardContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
+  const [isGenieOpen, setIsGenieOpen] = useState(false);
 
   const { toasts, dismissToast, showError } = useToast();
+
+  // Genie panel handlers
+  const handleOpenGenie = useCallback(() => setIsGenieOpen(true), []);
+  const handleCloseGenie = useCallback(() => setIsGenieOpen(false), []);
 
   // Extract filter options from all data (for date range defaults)
   // Memoized to prevent recalculation on every render
@@ -254,7 +263,7 @@ function DashboardContent() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-ft-gray-50">
-        <Header lastUpdated={null} isRefreshing={false} onRefresh={handleRefresh} />
+        <Header lastUpdated={null} isRefreshing={false} onRefresh={handleRefresh} onOpenGenie={handleOpenGenie} />
         <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <LoadingSkeleton />
         </main>
@@ -266,7 +275,7 @@ function DashboardContent() {
   if (initialLoadError) {
     return (
       <div className="min-h-screen bg-ft-gray-50">
-        <Header lastUpdated={lastUpdated} isRefreshing={isRefreshing} onRefresh={handleRefresh} />
+        <Header lastUpdated={lastUpdated} isRefreshing={isRefreshing} onRefresh={handleRefresh} onOpenGenie={handleOpenGenie} />
         <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6" role="alert">
           <div className="bg-ft-error/10 border border-ft-error/20 rounded-lg p-8 text-center">
             <AlertCircle className="w-12 h-12 text-ft-error mx-auto mb-4" aria-hidden="true" />
@@ -291,7 +300,7 @@ function DashboardContent() {
   if (!model || model.totalRows === 0) {
     return (
       <div className="min-h-screen bg-ft-gray-50">
-        <Header lastUpdated={lastUpdated} isRefreshing={isRefreshing} onRefresh={handleRefresh} />
+        <Header lastUpdated={lastUpdated} isRefreshing={isRefreshing} onRefresh={handleRefresh} onOpenGenie={handleOpenGenie} />
         <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="bg-white rounded-lg border border-ft-gray-200 p-12 text-center">
             <Truck className="w-16 h-16 text-ft-gray-300 mx-auto mb-4" aria-hidden="true" />
@@ -310,7 +319,7 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-ft-gray-50">
-      <Header lastUpdated={lastUpdated} isRefreshing={isRefreshing} onRefresh={handleRefresh} />
+      <Header lastUpdated={lastUpdated} isRefreshing={isRefreshing} onRefresh={handleRefresh} onOpenGenie={handleOpenGenie} />
 
       {/* Sticky Filter Bar */}
       <div className="sticky top-0 z-40 bg-ft-gray-50 border-b border-ft-gray-200 shadow-sm">
@@ -340,6 +349,9 @@ function DashboardContent() {
 
       {/* Toast notifications for non-blocking errors */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Genie Chat Panel */}
+      <GeniePanel isOpen={isGenieOpen} onClose={handleCloseGenie} />
     </div>
   );
 }
