@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Send, Sparkles, MessageCircle } from "lucide-react";
+import type { FilterState } from "@/lib/transform";
 
 interface Message {
   id: string;
@@ -13,6 +14,23 @@ interface Message {
 interface GeniePanelProps {
   isOpen: boolean;
   onClose: () => void;
+  filters?: FilterState;
+  lastRefreshedAt?: string | null;
+  rowCount?: number;
+}
+
+interface GenieResponse {
+  answerMarkdown: string;
+  citations?: Array<{
+    type: "row" | "aggregate" | "filter";
+    reference: string;
+    value?: string | number;
+  }>;
+  debug?: {
+    processingTimeMs: number;
+    questionCategory: string;
+    matchedPatterns: string[];
+  };
 }
 
 const SUGGESTED_QUESTIONS = [
@@ -26,49 +44,11 @@ const SUGGESTED_QUESTIONS = [
   "Penalty candidates over ₹1000",
 ];
 
-// Mock responses based on keywords
-function getMockResponse(question: string): string {
-  const q = question.toLowerCase();
-
-  if (q.includes("branch") && (q.includes("highest") || q.includes("top"))) {
-    return "Based on the current data, **Burdwan Depot** has the highest recovery potential at ₹45,230 across 12 diverted journeys. This is followed by Durgapur Depot (₹32,100) and Asansol Depot (₹28,450).";
-  }
-
-  if (q.includes("consignee") && (q.includes("top") || q.includes("count"))) {
-    return "Top 5 consignees by diversion count:\n\n1. **WBQ4-BHATAR** - 8 diversions (₹12,400 recovery)\n2. **WBQ2-MONGALKOT** - 6 diversions (₹9,800)\n3. **WBQ1-KATWA** - 5 diversions (₹7,200)\n4. **WBQ3-MEMARI** - 4 diversions (₹5,600)\n5. **WBQ5-RAINA** - 3 diversions (₹4,100)";
-  }
-
-  if (q.includes("average") && q.includes("short lead")) {
-    return "The **average short lead distance** across all diversions is **24.3 km**. The maximum recorded diversion distance is 67.2 km (Journey JRN-3d71265f).";
-  }
-
-  if (q.includes("corridor")) {
-    return "Top corridors with most diversions:\n\n1. **BURDWAN-T2 → MONGALKOT** - 15 diversions\n2. **DURGAPUR-T1 → KATWA** - 11 diversions\n3. **ASANSOL-T1 → MEMARI** - 8 diversions\n\nThese three corridors account for 45% of all diversions.";
-  }
-
-  if (q.includes("recovery") && q.includes("month")) {
-    return "Total potential recovery for the current month: **₹1,24,560**\n\nBreakdown:\n- Week 1: ₹32,400\n- Week 2: ₹41,200\n- Week 3: ₹28,960\n- Week 4 (so far): ₹22,000";
-  }
-
-  if (q.includes("vehicle") && q.includes("repeat")) {
-    return "Vehicles with repeated diversions (3+ occurrences):\n\n1. **WB41J4135** - 5 diversions, ₹8,200 total impact\n2. **WB39K2847** - 4 diversions, ₹6,100 total impact\n3. **WB42L1923** - 3 diversions, ₹4,800 total impact\n\nRecommendation: Flag these vehicles for driver counseling.";
-  }
-
-  if (q.includes("burdwan") || q.includes("compare") && q.includes("depot")) {
-    return "**Burdwan Depot** comparison:\n\n| Metric | Burdwan | Avg (Others) |\n|--------|---------|-------------|\n| Diversions | 28 | 15 |\n| Recovery | ₹45,230 | ₹22,100 |\n| Avg Lead | 26.4 km | 21.2 km |\n\nBurdwan has 1.8x more diversions than average.";
-  }
-
-  if (q.includes("penalty") && q.includes("1000")) {
-    return "Found **12 penalty candidates** with recovery > ₹1,000:\n\nTop 3:\n1. JRN-3d71265f - ₹2,340 (Burdwan → Mongalkot)\n2. JRN-8a92bc45 - ₹1,890 (Durgapur → Katwa)\n3. JRN-5c61de78 - ₹1,560 (Asansol → Memari)\n\nView full list in the Penalty Candidates table below.";
-  }
-
-  return "I analyzed the diversion data based on your question. The dashboard shows real-time insights from your Google Sheet. You can use the filters above to narrow down by branch, consignee, or date range for more specific analysis.\n\nTry asking about specific branches, consignees, corridors, or recovery amounts.";
-}
-
-export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
+export function GeniePanel({ isOpen, onClose, filters, lastRefreshedAt, rowCount }: GeniePanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -85,7 +65,7 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
   }, [isOpen]);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isTyping) return;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -97,20 +77,46 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsTyping(true);
+    setError(null);
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 700));
+    try {
+      const response = await fetch("/api/genie", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: userMessage.content,
+          filters: filters || {},
+          meta: {
+            lastRefreshedAt: lastRefreshedAt || null,
+            rowCount: rowCount || 0,
+          },
+        }),
+      });
 
-    const assistantMessage: Message = {
-      id: `assistant-${Date.now()}`,
-      role: "assistant",
-      content: getMockResponse(userMessage.content),
-      timestamp: new Date(),
-    };
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Request failed: ${response.status}`);
+      }
 
-    setMessages((prev) => [...prev, assistantMessage]);
-    setIsTyping(false);
-  }, [input]);
+      const data: GenieResponse = await response.json();
+
+      const assistantMessage: Message = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: data.answerMarkdown,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to get response");
+      console.error("Genie API error:", err);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [input, isTyping, filters, lastRefreshedAt, rowCount]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -122,6 +128,16 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
   const handleSuggestedQuestion = (question: string) => {
     setInput(question);
     setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    if (messages.length > 0) {
+      const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
+      if (lastUserMessage) {
+        setInput(lastUserMessage.content);
+      }
+    }
   };
 
   if (!isOpen) return null;
@@ -139,7 +155,7 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
       <div
         className={`
           fixed z-50 bg-white shadow-2xl flex flex-col
-          lg:right-0 lg:top-0 lg:h-full lg:w-[400px] lg:border-l lg:border-ft-gray-200
+          lg:right-0 lg:top-0 lg:h-full lg:w-[440px] lg:border-l lg:border-ft-gray-200
           inset-x-0 bottom-0 h-[85vh] rounded-t-2xl lg:rounded-none
         `}
         role="dialog"
@@ -206,13 +222,22 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
                   className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] px-4 py-2.5 rounded-2xl ${
+                    className={`max-w-[90%] px-4 py-2.5 rounded-2xl ${
                       message.role === "user"
                         ? "bg-ft-black text-white rounded-br-md"
-                        : "bg-ft-gray-100 text-ft-gray-900 rounded-bl-md"
+                        : "bg-ft-gray-50 text-ft-gray-900 rounded-bl-md border border-ft-gray-200"
                     }`}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    {message.role === "assistant" ? (
+                      <div
+                        className="text-sm prose prose-sm max-w-none prose-headings:text-ft-gray-900 prose-headings:font-semibold prose-h2:text-sm prose-h2:mt-3 prose-h2:mb-2 prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-table:my-2 prose-th:px-2 prose-th:py-1 prose-th:text-left prose-th:bg-ft-gray-100 prose-td:px-2 prose-td:py-1 prose-td:border-t prose-td:border-ft-gray-200"
+                        dangerouslySetInnerHTML={{
+                          __html: formatMarkdown(message.content)
+                        }}
+                      />
+                    ) : (
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -229,13 +254,27 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
                 </div>
               )}
 
+              {error && (
+                <div className="flex justify-center">
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+                    <span>{error}</span>
+                    <button
+                      onClick={handleRetry}
+                      className="text-red-600 hover:text-red-800 font-medium underline"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </>
           )}
         </div>
 
         {/* Suggested chips when there are messages */}
-        {messages.length > 0 && messages.length < 4 && (
+        {messages.length > 0 && messages.length < 4 && !isTyping && (
           <div className="px-4 pb-2">
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
               {SUGGESTED_QUESTIONS.slice(4, 8).map((q) => (
@@ -277,4 +316,34 @@ export function GeniePanel({ isOpen, onClose }: GeniePanelProps) {
       </div>
     </>
   );
+}
+
+// Simple markdown to HTML converter for structured responses
+function formatMarkdown(markdown: string): string {
+  let html = markdown
+    // Headers
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Tables
+    .replace(/\|(.+)\|/g, (match) => {
+      const cells = match.split('|').filter(c => c.trim());
+      const isHeader = match.includes('---');
+      if (isHeader) return '';
+      return `<tr>${cells.map(c => `<td>${c.trim()}</td>`).join('')}</tr>`;
+    })
+    // Wrap tables
+    .replace(/(<tr>.*<\/tr>\n?)+/g, '<table class="w-full text-xs">$&</table>')
+    // Lists
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
+    // Wrap lists
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul class="list-disc list-inside">$&</ul>')
+    // Paragraphs
+    .replace(/\n\n/g, '</p><p>')
+    // Line breaks
+    .replace(/\n/g, '<br/>');
+
+  return `<div>${html}</div>`;
 }

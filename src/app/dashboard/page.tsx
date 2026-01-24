@@ -351,7 +351,13 @@ function DashboardContent() {
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       {/* Genie Chat Panel */}
-      <GeniePanel isOpen={isGenieOpen} onClose={handleCloseGenie} />
+      <GeniePanel
+        isOpen={isGenieOpen}
+        onClose={handleCloseGenie}
+        filters={filters}
+        lastRefreshedAt={lastUpdated}
+        rowCount={model?.filteredRows.length}
+      />
     </div>
   );
 }
