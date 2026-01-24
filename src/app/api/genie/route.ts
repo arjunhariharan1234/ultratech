@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { GenieContext } from "@/lib/genie/context";
 
 interface GenieRequest {
   question: string;
-  filters: {
-    dateFrom?: string;
-    dateTo?: string;
-    branch?: string;
-    consignee?: string;
-    minFreightImpact?: number | null;
-    onlyDiversions?: boolean;
-  };
-  meta: {
-    lastRefreshedAt?: string;
-    rowCount?: number;
-  };
+  context: GenieContext | null;
 }
 
 interface GenieResponse {
@@ -36,7 +26,15 @@ interface GenieResponse {
 // 3) Interpretation (what it indicates + what it does NOT)
 // 4) Recommended Next Actions (audit-first)
 
-function generateMockResponse(question: string, filters: GenieRequest["filters"], meta: GenieRequest["meta"]): GenieResponse {
+function formatCurrency(value: number): string {
+  return `₹${value.toLocaleString("en-IN")}`;
+}
+
+function formatPercent(value: number): string {
+  return `${value.toFixed(1)}%`;
+}
+
+function generateResponse(question: string, ctx: GenieContext): GenieResponse {
   const q = question.toLowerCase();
   const startTime = Date.now();
 
@@ -45,35 +43,40 @@ function generateMockResponse(question: string, filters: GenieRequest["filters"]
   const matchedPatterns: string[] = [];
   const citations: GenieResponse["citations"] = [];
 
+  const { scorecards, topBranches, topConsignees, topCorridors, topPenaltyCandidates, datasetStats, filterSummary } = ctx;
+
   // Branch-related questions
   if (q.includes("branch") && (q.includes("highest") || q.includes("top") || q.includes("most"))) {
     questionCategory = "branch_analysis";
     matchedPatterns.push("branch_ranking", "recovery_metric");
 
-    answerMarkdown = `## Direct Answer
-**Burdwan Depot** has the highest recovery potential at **₹45,230** across 12 diverted journeys.
+    if (topBranches.length === 0) {
+      answerMarkdown = `## Direct Answer\nNo branch data available for the current filters.\n\n**Filters:** ${filterSummary}`;
+    } else {
+      const top = topBranches[0];
+      const totalRecovery = topBranches.reduce((sum, b) => sum + b.recovery, 0);
+      const topPct = totalRecovery > 0 ? ((top.recovery / totalRecovery) * 100).toFixed(1) : "0";
+
+      answerMarkdown = `## Direct Answer
+**${top.name}** has the highest recovery potential at **${formatCurrency(top.recovery)}** across ${top.journeys} diverted journeys.
 
 ## Supporting Data
 | Branch | Diversions | Recovery | Avg Lead |
 |--------|-----------|----------|----------|
-| Burdwan Depot | 12 | ₹45,230 | 26.4 km |
-| Durgapur Depot | 9 | ₹32,100 | 22.1 km |
-| Asansol Depot | 7 | ₹28,450 | 19.8 km |
+${topBranches.slice(0, 5).map(b => `| ${b.name} | ${b.journeys} | ${formatCurrency(b.recovery)} | ${b.avgLeadKm} km |`).join("\n")}
 
 ## Interpretation
-- Burdwan accounts for **38%** of total potential recovery
-- Higher average lead distance suggests systematic routing issues, not random deviations
-- This does NOT necessarily indicate driver misconduct—could be GPS issues or consignee location errors
+- ${top.name} accounts for **${topPct}%** of total recovery across top branches
+- Higher average lead distance suggests systematic routing issues
+- This does NOT necessarily indicate misconduct—could be GPS or location data errors
 
 ## Recommended Next Actions
-1. **Audit** top 5 Burdwan journeys with highest individual recovery
-2. **Verify** consignee GPS coordinates for WBQ4-BHATAR route
+1. **Audit** top 5 ${top.name} journeys with highest individual recovery
+2. **Verify** consignee GPS coordinates for high-frequency routes
 3. **Cross-check** driver assignment patterns for repeat diversions`;
 
-    citations.push(
-      { type: "aggregate", reference: "branch_summary", value: "Burdwan Depot" },
-      { type: "filter", reference: "applied_filters", value: JSON.stringify(filters) }
-    );
+      citations.push({ type: "aggregate", reference: "branch_summary", value: top.name });
+    }
   }
 
   // Consignee-related questions
@@ -81,57 +84,54 @@ function generateMockResponse(question: string, filters: GenieRequest["filters"]
     questionCategory = "consignee_analysis";
     matchedPatterns.push("consignee_ranking", "diversion_count");
 
-    answerMarkdown = `## Direct Answer
-**WBQ4-BHATAR** leads with 8 diversions totaling ₹12,400 in recovery potential.
+    if (topConsignees.length === 0) {
+      answerMarkdown = `## Direct Answer\nNo consignee data available for the current filters.\n\n**Filters:** ${filterSummary}`;
+    } else {
+      const top = topConsignees[0];
+      const totalDiversions = topConsignees.reduce((sum, c) => sum + c.journeys, 0);
+      const top5Pct = totalDiversions > 0
+        ? ((topConsignees.slice(0, 5).reduce((sum, c) => sum + c.journeys, 0) / totalDiversions) * 100).toFixed(0)
+        : "0";
+
+      answerMarkdown = `## Direct Answer
+**${top.name}** leads with ${top.journeys} diversions totaling ${formatCurrency(top.recovery)} in recovery potential.
 
 ## Supporting Data
 | Consignee | Diversions | Recovery | Repeat Rate |
 |-----------|-----------|----------|-------------|
-| WBQ4-BHATAR | 8 | ₹12,400 | 18.2% |
-| WBQ2-MONGALKOT | 6 | ₹9,800 | 13.6% |
-| WBQ1-KATWA | 5 | ₹7,200 | 11.4% |
-| WBQ3-MEMARI | 4 | ₹5,600 | 9.1% |
-| WBQ5-RAINA | 3 | ₹4,100 | 6.8% |
+${topConsignees.slice(0, 5).map(c => `| ${c.name} | ${c.journeys} | ${formatCurrency(c.recovery)} | ${formatPercent(c.repeatPct)} |`).join("\n")}
 
 ## Interpretation
-- Top 5 consignees account for **59%** of all diversions
+- Top 5 consignees account for **${top5Pct}%** of all diversions
 - High repeat rates suggest these are not isolated incidents
 - This does NOT prove consignee collusion—location data may need verification
 
 ## Recommended Next Actions
-1. **Audit** WBQ4-BHATAR delivery confirmations with GPS timestamps
+1. **Audit** ${top.name} delivery confirmations with GPS timestamps
 2. **Map** actual drop locations vs registered consignee coordinates
 3. **Interview** drivers who frequently serve these consignees`;
 
-    citations.push(
-      { type: "aggregate", reference: "consignee_summary", value: "WBQ4-BHATAR" }
-    );
+      citations.push({ type: "aggregate", reference: "consignee_summary", value: top.name });
+    }
   }
 
   // Short lead / distance questions
-  else if (q.includes("average") && (q.includes("short lead") || q.includes("distance"))) {
+  else if (q.includes("average") && (q.includes("short lead") || q.includes("distance") || q.includes("lead"))) {
     questionCategory = "distance_analysis";
     matchedPatterns.push("avg_calculation", "distance_metric");
 
     answerMarkdown = `## Direct Answer
-The **average short lead distance** is **24.3 km** across ${meta.rowCount || 156} filtered records.
+The **average short lead distance** is **${scorecards.avgShortLeadDistanceKm} km** across ${datasetStats.filteredRows} filtered records.
 
 ## Supporting Data
-- **Minimum**: 2.1 km (likely GPS variance)
-- **Maximum**: 67.2 km (Journey JRN-3d71265f)
-- **Median**: 18.7 km
-- **Std Dev**: 14.2 km
-
-| Range | Count | % of Total |
-|-------|-------|------------|
-| 0-10 km | 23 | 14.7% |
-| 10-25 km | 68 | 43.6% |
-| 25-50 km | 52 | 33.3% |
-| 50+ km | 13 | 8.3% |
+- **Maximum deviation**: ${scorecards.maxDivertedDistanceKm} km
+- **Total diverted journeys**: ${scorecards.totalDivertedJourneys}
+- **Branches affected**: ${scorecards.totalBranchesWithDiversions}
+- **Consignees involved**: ${scorecards.totalConsigneesInvolved}
 
 ## Interpretation
-- 43% of diversions fall in the 10-25 km range—significant but recoverable
-- The 8.3% with 50+ km suggests planned route deviations
+- Diversions averaging ${scorecards.avgShortLeadDistanceKm} km indicate systematic route deviations
+- Maximum of ${scorecards.maxDivertedDistanceKm} km suggests some planned diversions
 - This does NOT account for legitimate re-routing due to road conditions
 
 ## Recommended Next Actions
@@ -139,9 +139,7 @@ The **average short lead distance** is **24.3 km** across ${meta.rowCount || 156
 2. **Compare** deviation patterns against known road closures/traffic
 3. **Implement** real-time alerts for deviations > 30 km`;
 
-    citations.push(
-      { type: "aggregate", reference: "distance_stats", value: "24.3 km avg" }
-    );
+    citations.push({ type: "aggregate", reference: "distance_stats", value: `${scorecards.avgShortLeadDistanceKm} km avg` });
   }
 
   // Corridor questions
@@ -149,30 +147,35 @@ The **average short lead distance** is **24.3 km** across ${meta.rowCount || 156
     questionCategory = "corridor_analysis";
     matchedPatterns.push("corridor_grouping", "route_analysis");
 
-    answerMarkdown = `## Direct Answer
-**BURDWAN-T2 → MONGALKOT** corridor has the most diversions with 15 occurrences.
+    if (topCorridors.length === 0) {
+      answerMarkdown = `## Direct Answer\nNo corridor data available for the current filters.\n\n**Filters:** ${filterSummary}`;
+    } else {
+      const top = topCorridors[0];
+      const totalCount = topCorridors.reduce((sum, c) => sum + c.count, 0);
+      const top3Pct = totalCount > 0
+        ? ((topCorridors.slice(0, 3).reduce((sum, c) => sum + c.count, 0) / totalCount) * 100).toFixed(0)
+        : "0";
+
+      answerMarkdown = `## Direct Answer
+**${top.corridor}** corridor has the most diversions with ${top.count} occurrences.
 
 ## Supporting Data
 | Corridor | Count | Recovery | Avg Lead |
 |----------|-------|----------|----------|
-| BURDWAN-T2 → MONGALKOT | 15 | ₹18,200 | 28.4 km |
-| DURGAPUR-T1 → KATWA | 11 | ₹14,100 | 24.2 km |
-| ASANSOL-T1 → MEMARI | 8 | ₹9,800 | 21.6 km |
-| BURDWAN-T2 → KATWA | 6 | ₹7,200 | 19.3 km |
+${topCorridors.slice(0, 5).map(c => `| ${c.corridor} | ${c.count} | ${formatCurrency(c.recovery)} | ${c.avgLeadKm} km |`).join("\n")}
 
 ## Interpretation
-- Top 3 corridors account for **45%** of all diversions
-- BURDWAN-T2 origin appears in 2 of top 4—suggests terminal-level issue
+- Top 3 corridors account for **${top3Pct}%** of all diversions
+- Repeated diversions on same corridors suggest systematic issues
 - This does NOT mean other corridors are clean—may need broader date range
 
 ## Recommended Next Actions
-1. **Review** BURDWAN-T2 dispatch procedures and route assignments
-2. **Install** intermediate checkpoints on MONGALKOT route
+1. **Review** dispatch procedures for high-frequency corridors
+2. **Install** intermediate checkpoints on problem routes
 3. **Analyze** time-of-day patterns for these corridors`;
 
-    citations.push(
-      { type: "aggregate", reference: "corridor_summary", value: "BURDWAN-T2 → MONGALKOT" }
-    );
+      citations.push({ type: "aggregate", reference: "corridor_summary", value: top.corridor });
+    }
   }
 
   // Recovery / financial questions
@@ -180,25 +183,28 @@ The **average short lead distance** is **24.3 km** across ${meta.rowCount || 156
     questionCategory = "financial_analysis";
     matchedPatterns.push("recovery_sum", "financial_metric");
 
+    const branchBreakdown = topBranches.slice(0, 3).map(b => {
+      const pct = scorecards.totalPotentialRecovery > 0
+        ? ((b.recovery / scorecards.totalPotentialRecovery) * 100).toFixed(1)
+        : "0";
+      return `- ${b.name}: ${formatCurrency(b.recovery)} (${pct}%)`;
+    }).join("\n");
+
     answerMarkdown = `## Direct Answer
-Total potential recovery: **₹1,24,560** across the current filter period.
+Total potential recovery: **${formatCurrency(scorecards.totalPotentialRecovery)}** across the current filter period.
 
 ## Supporting Data
-| Period | Recovery | Journeys | Avg per Journey |
-|--------|----------|----------|-----------------|
-| Week 1 | ₹32,400 | 11 | ₹2,945 |
-| Week 2 | ₹41,200 | 14 | ₹2,943 |
-| Week 3 | ₹28,960 | 10 | ₹2,896 |
-| Week 4 | ₹22,000 | 9 | ₹2,444 |
+**Summary:**
+- Total diverted journeys: ${scorecards.totalDivertedJourneys}
+- Average recovery per journey: ${formatCurrency(scorecards.totalDivertedJourneys > 0 ? Math.round(scorecards.totalPotentialRecovery / scorecards.totalDivertedJourneys) : 0)}
+- Branches with diversions: ${scorecards.totalBranchesWithDiversions}
+- Consignees involved: ${scorecards.totalConsigneesInvolved}
 
 **By Branch:**
-- Burdwan: ₹45,230 (36.3%)
-- Durgapur: ₹32,100 (25.8%)
-- Others: ₹47,230 (37.9%)
+${branchBreakdown}
 
 ## Interpretation
-- Consistent ~₹2,900 per diversion indicates systematic pricing gaps
-- Week 4 shows lower average—could indicate improving compliance
+- Consistent per-journey amounts may indicate systematic pricing gaps
 - This does NOT represent actual recovered funds—only potential if actioned
 
 ## Recommended Next Actions
@@ -206,44 +212,7 @@ Total potential recovery: **₹1,24,560** across the current filter period.
 2. **Calculate** ROI of implementing automated diversion alerts
 3. **Set** monthly recovery targets by branch`;
 
-    citations.push(
-      { type: "aggregate", reference: "recovery_total", value: "₹1,24,560" }
-    );
-  }
-
-  // Vehicle / driver questions
-  else if (q.includes("vehicle") || q.includes("driver")) {
-    questionCategory = "vehicle_analysis";
-    matchedPatterns.push("vehicle_grouping", "repeat_detection");
-
-    answerMarkdown = `## Direct Answer
-**3 vehicles** show repeated diversions (3+ occurrences), led by **WB41J4135** with 5 diversions.
-
-## Supporting Data
-| Vehicle | Diversions | Total Impact | Driver Changes |
-|---------|-----------|--------------|----------------|
-| WB41J4135 | 5 | ₹8,200 | 1 driver |
-| WB39K2847 | 4 | ₹6,100 | 1 driver |
-| WB42L1923 | 3 | ₹4,800 | 2 drivers |
-
-**WB41J4135 Details:**
-- All 5 diversions on BURDWAN-T2 routes
-- Same driver: DRV-4521
-- Dates: 01/12, 05/12, 12/12, 18/12, 24/12
-
-## Interpretation
-- Single driver operating WB41J4135 suggests individual behavior pattern
-- WB42L1923 with 2 drivers indicates possible vehicle tracking issue
-- This does NOT confirm misconduct—GPS device malfunction possible
-
-## Recommended Next Actions
-1. **Interview** DRV-4521 with specific journey evidence
-2. **Inspect** GPS device on WB41J4135 for tampering/malfunction
-3. **Cross-reference** fuel consumption data for these journeys`;
-
-    citations.push(
-      { type: "row", reference: "vehicle_WB41J4135", value: "5 diversions" }
-    );
+    citations.push({ type: "aggregate", reference: "recovery_total", value: formatCurrency(scorecards.totalPotentialRecovery) });
   }
 
   // Penalty questions
@@ -251,28 +220,30 @@ Total potential recovery: **₹1,24,560** across the current filter period.
     questionCategory = "penalty_analysis";
     matchedPatterns.push("penalty_threshold", "candidate_ranking");
 
-    const threshold = q.match(/(\d+)/)?.[1] || "1000";
+    if (topPenaltyCandidates.length === 0) {
+      answerMarkdown = `## Direct Answer\nNo penalty candidates found for the current filters.\n\n**Filters:** ${filterSummary}`;
+    } else {
+      const totalPenaltyRecovery = topPenaltyCandidates.reduce((sum, p) => sum + p.recovery, 0);
+      const avgPerCandidate = topPenaltyCandidates.length > 0
+        ? Math.round(totalPenaltyRecovery / topPenaltyCandidates.length)
+        : 0;
 
-    answerMarkdown = `## Direct Answer
-**12 penalty candidates** found with recovery > ₹${threshold}.
+      answerMarkdown = `## Direct Answer
+**${topPenaltyCandidates.length} penalty candidates** found with significant recovery potential.
 
 ## Supporting Data
 | Journey ID | Branch | Consignee | Recovery | Lead |
 |------------|--------|-----------|----------|------|
-| JRN-3d71265f | Burdwan | WBQ4-BHATAR | ₹2,340 | 45.2 km |
-| JRN-8a92bc45 | Durgapur | WBQ1-KATWA | ₹1,890 | 38.7 km |
-| JRN-5c61de78 | Asansol | WBQ3-MEMARI | ₹1,560 | 32.1 km |
-| JRN-2b43af91 | Burdwan | WBQ2-MONGALKOT | ₹1,420 | 29.8 km |
-| JRN-9e17cd82 | Durgapur | WBQ5-RAINA | ₹1,340 | 27.4 km |
+${topPenaltyCandidates.slice(0, 5).map(p => `| ${p.journeyId.substring(0, 12)}... | ${p.branch} | ${p.consignee} | ${formatCurrency(p.recovery)} | ${p.leadKm} km |`).join("\n")}
 
 **Summary:**
-- Total penalty-eligible recovery: ₹18,450
-- Average per candidate: ₹1,538
-- Burdwan candidates: 5 (41.7%)
+- Total penalty-eligible recovery: ${formatCurrency(totalPenaltyRecovery)}
+- Average per candidate: ${formatCurrency(avgPerCandidate)}
+- Top candidate deviation: ${topPenaltyCandidates[0]?.leadKm ?? 0} km
 
 ## Interpretation
-- Top candidate (JRN-3d71265f) has 45.2 km deviation—clearly intentional
-- Concentration in Burdwan aligns with branch-level findings
+- Top candidates show significant deviation distances—likely intentional
+- High concentration in certain branches aligns with branch-level findings
 - This does NOT guarantee penalty recovery—requires driver acknowledgment
 
 ## Recommended Next Actions
@@ -280,85 +251,46 @@ Total potential recovery: **₹1,24,560** across the current filter period.
 2. **Schedule** driver meetings with branch supervisors present
 3. **Calculate** net recovery after penalty processing costs`;
 
-    citations.push(
-      { type: "row", reference: "JRN-3d71265f", value: "₹2,340" },
-      { type: "row", reference: "JRN-8a92bc45", value: "₹1,890" }
-    );
-  }
-
-  // Compare / comparison questions
-  else if (q.includes("compare") || q.includes("vs") || q.includes("versus")) {
-    questionCategory = "comparison_analysis";
-    matchedPatterns.push("comparative", "benchmark");
-
-    answerMarkdown = `## Direct Answer
-**Burdwan Depot** shows **1.8x higher** diversion rate compared to average.
-
-## Supporting Data
-| Metric | Burdwan | Fleet Average | Variance |
-|--------|---------|---------------|----------|
-| Diversions | 28 | 15.5 | +80.6% |
-| Recovery | ₹45,230 | ₹22,100 | +104.7% |
-| Avg Lead | 26.4 km | 21.2 km | +24.5% |
-| Repeat Rate | 23% | 14% | +64.3% |
-
-**Trend (Last 4 Weeks):**
-| Week | Burdwan | Others | Gap |
-|------|---------|--------|-----|
-| W1 | 8 | 14 | -6 |
-| W2 | 9 | 12 | -3 |
-| W3 | 6 | 9 | -3 |
-| W4 | 5 | 8 | -3 |
-
-## Interpretation
-- Burdwan is a clear outlier across all metrics
-- Week-over-week trend shows gap narrowing—possible early intervention effect
-- This does NOT mean other depots are optimal—just relatively better
-
-## Recommended Next Actions
-1. **Replicate** successful practices from lower-diversion depots
-2. **Assign** dedicated compliance officer to Burdwan
-3. **Set** weekly diversion reduction targets with depot manager`;
-
-    citations.push(
-      { type: "aggregate", reference: "depot_comparison", value: "Burdwan vs Fleet" }
-    );
+      citations.push(
+        { type: "row", reference: topPenaltyCandidates[0]?.journeyId ?? "", value: formatCurrency(topPenaltyCandidates[0]?.recovery ?? 0) }
+      );
+    }
   }
 
   // Default / general questions
   else {
     questionCategory = "general";
-    matchedPatterns.push("fallback");
+    matchedPatterns.push("overview");
 
     answerMarkdown = `## Direct Answer
-Based on current filters, there are **${meta.rowCount || 156} records** with potential diversion indicators.
+Based on current filters, there are **${datasetStats.filteredRows} records** with diversion indicators.
 
 ## Supporting Data
-**Current Filter State:**
-${filters.branch ? `- Branch: ${filters.branch}` : "- Branch: All"}
-${filters.consignee ? `- Consignee: ${filters.consignee}` : "- Consignee: All"}
-${filters.dateFrom ? `- From: ${filters.dateFrom}` : "- Date range: All available"}
-${filters.onlyDiversions !== false ? "- Showing: Diversions only" : "- Showing: All loads"}
+**Current Filters:**
+${filterSummary}
 
 **Quick Stats:**
-- Total potential recovery: ₹1,24,560
-- Average short lead: 24.3 km
-- Affected branches: 6
-- Affected consignees: 18
+- Total potential recovery: ${formatCurrency(scorecards.totalPotentialRecovery)}
+- Average short lead: ${scorecards.avgShortLeadDistanceKm} km
+- Diverted journeys: ${scorecards.totalDivertedJourneys}
+- Affected branches: ${scorecards.totalBranchesWithDiversions}
+- Affected consignees: ${scorecards.totalConsigneesInvolved}
+
+**Top Branch:** ${topBranches[0]?.name ?? "N/A"} (${formatCurrency(topBranches[0]?.recovery ?? 0)})
+**Top Consignee:** ${topConsignees[0]?.name ?? "N/A"} (${topConsignees[0]?.journeys ?? 0} diversions)
+**Top Corridor:** ${topCorridors[0]?.corridor ?? "N/A"} (${topCorridors[0]?.count ?? 0} occurrences)
 
 ## Interpretation
-- Data is current as of ${meta.lastRefreshedAt ? new Date(meta.lastRefreshedAt).toLocaleString() : "last refresh"}
-- Use specific questions for deeper insights on branches, consignees, corridors, or recovery
-- This overview does NOT highlight specific problem areas—ask targeted questions
+- Data range: ${datasetStats.dateRangeMin || "N/A"} to ${datasetStats.dateRangeMax || "N/A"}
+- Last updated: ${new Date(datasetStats.lastUpdated).toLocaleString()}
+- Use specific questions for deeper insights
 
 ## Recommended Next Actions
 1. **Ask** "Which branch has highest recovery?" for branch-level insights
 2. **Ask** "Top consignees by diversion count" for consignee analysis
-3. **Use** filters above to narrow down to specific time periods or entities`;
+3. **Use** filters to narrow down to specific time periods or entities`;
 
-    citations.push(
-      { type: "filter", reference: "current_filters", value: JSON.stringify(filters) }
-    );
+    citations.push({ type: "filter", reference: "current_filters", value: filterSummary });
   }
 
   return {
@@ -398,14 +330,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<GenieResp
       );
     }
 
-    // Simulate processing delay (will be replaced with actual LLM call)
-    await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 400));
+    if (!body.context) {
+      return NextResponse.json(
+        { error: "Missing context data" },
+        { status: 400 }
+      );
+    }
 
-    const response = generateMockResponse(
-      body.question,
-      body.filters || {},
-      body.meta || {}
-    );
+    // Simulate processing delay (will be replaced with actual LLM call)
+    await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 300));
+
+    const response = generateResponse(body.question, body.context);
 
     return NextResponse.json(response);
   } catch (error) {

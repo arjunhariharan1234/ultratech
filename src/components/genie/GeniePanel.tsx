@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Send, Sparkles, MessageCircle } from "lucide-react";
-import type { FilterState } from "@/lib/transform";
+import type { GenieContext } from "@/lib/genie/context";
 
 interface Message {
   id: string;
@@ -14,9 +14,7 @@ interface Message {
 interface GeniePanelProps {
   isOpen: boolean;
   onClose: () => void;
-  filters?: FilterState;
-  lastRefreshedAt?: string | null;
-  rowCount?: number;
+  context: GenieContext | null;
 }
 
 interface GenieResponse {
@@ -44,7 +42,7 @@ const SUGGESTED_QUESTIONS = [
   "Penalty candidates over ₹1000",
 ];
 
-export function GeniePanel({ isOpen, onClose, filters, lastRefreshedAt, rowCount }: GeniePanelProps) {
+export function GeniePanel({ isOpen, onClose, context }: GeniePanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -87,11 +85,7 @@ export function GeniePanel({ isOpen, onClose, filters, lastRefreshedAt, rowCount
         },
         body: JSON.stringify({
           question: userMessage.content,
-          filters: filters || {},
-          meta: {
-            lastRefreshedAt: lastRefreshedAt || null,
-            rowCount: rowCount || 0,
-          },
+          context: context,
         }),
       });
 
@@ -116,7 +110,7 @@ export function GeniePanel({ isOpen, onClose, filters, lastRefreshedAt, rowCount
     } finally {
       setIsTyping(false);
     }
-  }, [input, isTyping, filters, lastRefreshedAt, rowCount]);
+  }, [input, isTyping, context]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {

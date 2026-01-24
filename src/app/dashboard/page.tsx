@@ -25,6 +25,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { PerformanceWarning, LARGE_DATASET_THRESHOLD } from "@/components/ui/PerformanceWarning";
 import { GeniePanel } from "@/components/genie/GeniePanel";
 import { GenieButton } from "@/components/genie/GenieButton";
+import { buildGenieContext, logGenieContext, type GenieContext } from "@/lib/genie/context";
 
 // Configurable auto-refresh interval (in milliseconds)
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -194,6 +195,19 @@ function DashboardContent() {
     return buildDashboardModel(allData, filters);
   }, [allData, filters]);
 
+  // Build Genie context from model (compact representation for LLM)
+  const genieContext: GenieContext | null = useMemo(() => {
+    if (!model) return null;
+    return buildGenieContext(model, filters, lastUpdated);
+  }, [model, filters, lastUpdated]);
+
+  // Log Genie context in dev mode when panel opens
+  useEffect(() => {
+    if (isGenieOpen && genieContext) {
+      logGenieContext(genieContext);
+    }
+  }, [isGenieOpen, genieContext]);
+
   // Check for large dataset
   const isLargeDataset = allData.length >= LARGE_DATASET_THRESHOLD;
 
@@ -354,9 +368,7 @@ function DashboardContent() {
       <GeniePanel
         isOpen={isGenieOpen}
         onClose={handleCloseGenie}
-        filters={filters}
-        lastRefreshedAt={lastUpdated}
-        rowCount={model?.filteredRows.length}
+        context={genieContext}
       />
     </div>
   );
