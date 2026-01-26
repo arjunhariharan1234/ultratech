@@ -140,16 +140,16 @@ export function GeniePanel({ isOpen, onClose, context }: GeniePanelProps) {
     <>
       {/* Backdrop for mobile */}
       <div
-        className="fixed inset-0 bg-black/50 z-50 lg:hidden"
+        className="fixed inset-0 bg-black/50 z-30 lg:hidden"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* Panel - Right drawer on desktop, bottom sheet on mobile */}
+      {/* Panel - Right drawer on desktop (below nav), bottom sheet on mobile */}
       <div
         className={`
-          fixed z-50 bg-white shadow-2xl flex flex-col
-          lg:right-0 lg:top-0 lg:h-full lg:w-[440px] lg:border-l lg:border-ft-gray-200
+          fixed z-40 bg-white shadow-2xl flex flex-col
+          lg:right-0 lg:top-16 lg:h-[calc(100vh-4rem)] lg:w-[440px] lg:border-l lg:border-ft-gray-200
           inset-x-0 bottom-0 h-[85vh] rounded-t-2xl lg:rounded-none
         `}
         role="dialog"
