@@ -149,8 +149,8 @@ export function GeniePanel({ isOpen, onClose, context }: GeniePanelProps) {
       <div
         className={`
           fixed z-40 bg-white shadow-2xl flex flex-col
-          lg:right-0 lg:top-16 lg:h-[calc(100vh-4rem)] lg:w-[440px] lg:border-l lg:border-ft-gray-200
-          inset-x-0 bottom-0 h-[85vh] rounded-t-2xl lg:rounded-none
+          inset-x-0 bottom-0 h-[85vh] rounded-t-2xl
+          lg:inset-x-auto lg:right-0 lg:top-16 lg:bottom-auto lg:h-[calc(100vh-4rem)] lg:w-[420px] lg:border-l lg:border-ft-gray-200 lg:rounded-none
         `}
         role="dialog"
         aria-label="Genie Chat"
