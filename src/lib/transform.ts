@@ -282,13 +282,14 @@ export function applyFilters(rows: DiversionRow[], filters: FilterState): Divers
 // SCORECARD CALCULATIONS
 // =============================================================================
 
-export function calculateScorecards(rows: DiversionRow[]): Scorecards {
+export function calculateScorecards(rows: DiversionRow[], allRows?: DiversionRow[]): Scorecards {
   // Filter to only diverted rows for most metrics
   const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
 
-  // 1) Total Potential recovery = SUM(ABS(freight_impact)) across ALL rows with an impact
-  // Includes non-diverted rows that still carry a freight impact value
-  const totalPotentialRecovery = rows.reduce((sum, r) => {
+  // 1) Total Potential recovery = SUM(ABS(freight_impact)) across the full dataset
+  // Uses allRows (pre-filter) so the total is not affected by view filters like onlyDiversions
+  const recoverySource = allRows ?? rows;
+  const totalPotentialRecovery = recoverySource.reduce((sum, r) => {
     return sum + Math.abs(safeNumber(r.freightImpact));
   }, 0);
 
@@ -527,7 +528,8 @@ export function buildDashboardModel(
   const filteredRows = applyFilters(allRows, filters);
 
   // Calculate all derived data
-  const scorecards = calculateScorecards(filteredRows);
+  // Pass allRows so total recovery reflects the full dataset
+  const scorecards = calculateScorecards(filteredRows, allRows);
   const branchChart = calculateBranchChart(filteredRows);
   const consigneeChart = calculateConsigneeChart(filteredRows);
   const branchTable = calculateBranchTable(filteredRows);
