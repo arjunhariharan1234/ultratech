@@ -286,10 +286,9 @@ export function calculateScorecards(rows: DiversionRow[]): Scorecards {
   // Filter to only diverted rows for most metrics
   const divertedRows = rows.filter((r) => r?.isPotentialDiversion === true);
 
-  // 1) Total Potential recovery = SUM(freight_impact)
-  // Note: freight_impact is typically negative for diversions (savings opportunity)
-  // We take absolute value for "recovery" framing
-  const totalPotentialRecovery = divertedRows.reduce((sum, r) => {
+  // 1) Total Potential recovery = SUM(ABS(freight_impact)) across ALL rows with an impact
+  // Includes non-diverted rows that still carry a freight impact value
+  const totalPotentialRecovery = rows.reduce((sum, r) => {
     return sum + Math.abs(safeNumber(r.freightImpact));
   }, 0);
 
